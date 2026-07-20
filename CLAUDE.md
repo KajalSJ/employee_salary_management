@@ -62,7 +62,24 @@ currency, and a compa-ratio salary distribution histogram. See Decision Log for 
 it's currency-segmented rather than FX-converted. 7 Jest unit tests against a
 hand-computed fixture dataset (mocked `$queryRaw`, no real DB).
 
-No UI built yet. Requirements document and scope decisions still pending.
+Frontend layout shell built: root layout renders a persistent `AppShell`
+(`src/components/layout/`) — a fixed sidebar (Employees/Analytics/Settings nav,
+active-state highlighting via `usePathname`) and a topbar (mobile hamburger toggle,
+page title). Routing structure in place: `/employees`, `/employees/[id]`,
+`/analytics`, `/settings`, root `/` redirects to `/employees`, plus a root
+`not-found.tsx` and `loading.tsx`.
+
+`/employees` is now a working paginated/filterable table (`src/components/employees/`)
+built on TanStack Table + TanStack Query, calling `GET /employees` through a Next.js
+rewrite proxy at `/api/*` (see Decision Log). Server-side pagination (20/page),
+dropdown filters for department/country/status (fixed lists, see Decision Log),
+name search debounced 300ms, loading skeleton, empty state, and row click navigates
+to `/employees/[id]`. `/employees/[id]` itself is still a placeholder — no detail
+view built yet. Vitest + React Testing Library set up for the frontend (4 tests
+covering render/empty-state/debounce/filter-refetch on `EmployeesTable`); verified
+end-to-end against the real seeded backend with Playwright driving system Chrome
+(see Decision Log). `/analytics` and `/settings` remain placeholder content.
+Requirements document and scope decisions still pending.
 
 ## Data Model
 
@@ -171,6 +188,69 @@ No UI built yet. Requirements document and scope decisions still pending.
   clear, actionable error immediately if `DATABASE_URL` is still unset after that
   (covers non-`.env` deployments that forget to set it), instead of letting `pg`
   fail later with the same opaque SASL message.
+- 2026-07-20: `frontend/AGENTS.md` flags that this Next.js install (16.2.10) may
+  diverge from training data — confirmed relevant: `params`/`searchParams` are
+  now `Promise`s (must `await`), and this repo's shadcn setup is a `@base-ui/react`
+  fork, not Radix — `Button` has no `asChild` prop. Composing it with `next/link`
+  uses base-ui's `render` prop instead: `<Button render={<Link href="/x" />}>label
+  </Button>` (the `render` element must be self-closing/childless so the Button's
+  own `children` pass through — base-ui's `mergeProps` only overwrites keys that
+  exist on the `render` element's own props). Any future shadcn component added
+  via the CLI will follow this same `render`-prop pattern, not `asChild`.
+- 2026-07-20: Built the frontend layout shell (`src/components/layout/app-shell.tsx`,
+  `sidebar.tsx`, `topbar.tsx`) by hand rather than via the shadcn CLI's sidebar
+  block — the CLI's default sidebar registry component is built for Radix-style
+  `asChild`/context patterns that don't map cleanly onto this project's base-ui
+  fork, and the shell itself is simple enough (nav list + mobile slide-in) that
+  hand-rolling it with the existing `Button`/`cn` primitives was less risk than
+  adapting a generated block. Mobile nav state (`mobileNavOpen`) lives in
+  `AppShell` and is threaded to both `Sidebar` and `Topbar` as props rather than
+  React context, since only those two siblings need it.
+- 2026-07-21: Added a Next.js rewrite (`/api/:path*` → `${BACKEND_URL}/:path*`,
+  `next.config.ts`, defaulting to `http://localhost:3000`) rather than enabling
+  CORS on the Nest backend or hardcoding an absolute backend URL in client-side
+  `fetch` calls. Keeps the browser same-origin (no CORS config needed on the
+  backend), keeps the backend origin out of client bundles, and matches how this
+  would front a separate API service in production. All frontend data fetching
+  (`src/lib/api/*`) calls relative `/api/...` paths through this proxy.
+- 2026-07-21: Built `/employees` on TanStack Table (headless) + TanStack Query
+  (`@tanstack/react-query`) rather than plain `useEffect`/`fetch` state. Query
+  handles request de-duping, in-flight cancellation, and — via
+  `placeholderData: keepPreviousData` — keeps the previous page's rows on screen
+  (no flash-to-empty) while a new page/filter request is in flight; TanStack
+  Table's `manualPagination`/`pageCount` mode defers the actual paging to the
+  API response's `meta`, matching the backend's `{ data, meta: { page, pageSize,
+  total, totalPages } }` contract exactly.
+- 2026-07-21: Department/country/status filter options (`src/lib/constants/
+  employee-filters.ts`) are a fixed list mirrored from `backend/prisma/seed.ts`'s
+  `DEPARTMENTS`/`COUNTRIES` arrays and the `EmployeeStatus` enum, not fetched from
+  the API — there's no distinct-values endpoint yet and the seed data's
+  department/country set is fixed, so a fixed list is simpler than adding one.
+  Revisit if departments/countries ever become user-editable.
+- 2026-07-21: Filter dropdowns (`src/components/ui/select.tsx`) are a styled
+  native `<select>`, not a composed `@base-ui/react` Select (listbox/popover).
+  These are plain single-choice filters, not rich comboboxes, so a native select
+  gets full keyboard/a11y support for free and is trivially testable with RTL
+  (`fireEvent.change`) — a base-ui Select's popover/listbox interaction pattern
+  would need real user-event click sequences and is more surface area to get
+  wrong on a still-unfamiliar fork (see the `Button`/`render`-prop note above).
+- 2026-07-21: Added Vitest + React Testing Library for the frontend (`vitest.config.ts`,
+  `vitest.setup.ts`, `npm test` in `/frontend`) rather than Jest — Next's official
+  guidance offers both; Vitest's native Vite integration needs less Next-specific
+  glue (no `next/jest` transform layer) and its `resolve.tsconfigPaths` config
+  option resolves the `@/*` alias natively. `@testing-library/react`'s automatic
+  per-test `cleanup()` only self-registers when it finds a global `afterEach`;
+  since `vitest.config.ts` doesn't set `test.globals: true`, `vitest.setup.ts`
+  wires `cleanup()` into `afterEach` explicitly — omitting this causes DOM from
+  every previous test in a file to accumulate (surfaced as spurious "multiple
+  elements found" query errors).
+- 2026-07-21: Verified the employees table end-to-end against the real seeded
+  backend (10,001 rows) using Playwright's Node API driving system Chrome
+  (`channel: "chrome"`) rather than Playwright's bundled Chromium — the bundled
+  browser's cached revision on this machine didn't match what the installed
+  `playwright` package expected (`chrome-headless-shell.exe` missing for the
+  expected revision) and downloading a new one wasn't worth it for a one-off
+  smoke check when system Chrome was already present.
 
 ## Reference
 
