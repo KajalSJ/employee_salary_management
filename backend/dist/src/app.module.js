@@ -13,12 +13,20 @@ const app_service_1 = require("./app.service");
 const employees_module_1 = require("./employees/employees.module");
 const salaries_module_1 = require("./salaries/salaries.module");
 const health_module_1 = require("./health/health.module");
+const prisma_module_1 = require("./prisma/prisma.module");
+const analytics_module_1 = require("./analytics/analytics.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
-        imports: [employees_module_1.EmployeesModule, salaries_module_1.SalariesModule, health_module_1.HealthModule],
+        imports: [
+            prisma_module_1.PrismaModule,
+            employees_module_1.EmployeesModule,
+            salaries_module_1.SalariesModule,
+            health_module_1.HealthModule,
+            analytics_module_1.AnalyticsModule,
+        ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],
     })

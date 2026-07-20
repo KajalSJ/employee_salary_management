@@ -4,10 +4,58 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum SalaryChangeReason {
+  JOINING
+  HIKE
+  PROMOTION
+  ADJUSTMENT
+  CORRECTION
+}
+
+model Employee {
+  id         String         @id @default(uuid())
+  name       String
+  email      String         @unique
+  department String
+  country    String
+  currency   String
+  jobTitle   String
+  status     EmployeeStatus @default(ACTIVE)
+  hireDate   DateTime
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  salaryRecords SalaryRecord[]
+
+  @@index([department])
+  @@index([country])
+}
+
+model SalaryRecord {
+  id            String             @id @default(uuid())
+  employeeId    String
+  amount        Decimal            @db.Decimal(12, 2)
+  currency      String
+  effectiveDate DateTime
+  reason        SalaryChangeReason
+  createdAt     DateTime           @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
 }
