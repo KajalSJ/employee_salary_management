@@ -23,12 +23,14 @@ Monorepo (single git repo at project root) with two independent apps, no shared
 workspace tooling yet (no npm workspaces/Turborepo — add only if real code sharing
 between apps becomes necessary):
 
-- `/backend` — NestJS + TypeScript, Prisma ORM, PostgreSQL. Health check at `GET /health`.
-  `employees` module is fully implemented (CRUD + pagination/filtering, see Current
-  Status); `analytics` module implemented (`GET /analytics/summary`); `salaries`
-  module now exposes one write endpoint, `POST /employees/:employeeId/salaries`
-  (create-only — see Decision Log), read access is still only via `employees/:id`
-  and `analytics`.
+- `/backend` — NestJS + TypeScript, Prisma ORM, PostgreSQL. Health check at `GET /health`
+  (public, no auth). `employees` module is fully implemented (CRUD + pagination/
+  filtering, see Current Status); `analytics` module implemented (`GET /analytics/
+  summary`); `salaries` module now exposes one write endpoint, `POST /employees/
+  :employeeId/salaries` (create-only — see Decision Log), read access is still only
+  via `employees/:id` and `analytics`; `auth` module implemented (JWT-based, single
+  HRManager persona — see Decision Log) and guards every route in the three modules
+  above except `/health`.
 - `/frontend` — Next.js (App Router) + TypeScript + Tailwind CSS v4 + shadcn/ui
   (`components.json`, `src/components/ui`).
 
@@ -42,13 +44,16 @@ Written up as a one-page doc: [docs/requirements.md](docs/requirements.md). Summ
 - Org-wide analytics (headcount, avg/median salary, payroll cost, distribution),
   segmented by currency
 - Soft-delete (offboarding) via `status: TERMINATED`
+- JWT-based authentication for the single HR Manager persona (no multi-role RBAC
+  — see Decision Log)
 
 ### Explicitly Out of Scope
 - Editing/deleting existing salary records (create-only — see Decision Log)
 - Hard-deleting employees (FK `onDelete: Restrict` makes this structurally
   impossible; use `status` instead)
 - Currency conversion/FX rates in analytics (see Decision Log)
-- Auth/roles/multi-tenant access control (single HR Manager persona)
+- Multi-role RBAC, password reset, email verification, and refresh tokens (single
+  HR Manager persona with short-lived access tokens only — see Decision Log)
 - Editable department/country lists (fixed set mirrored from seed data)
 - Reporting exports (CSV/PDF) and audit-log UI
 
@@ -155,6 +160,50 @@ API structure, key trade-offs), and [docs/ai-usage.md](docs/ai-usage.md) (phase-
 phase reconstruction of what Claude Code was directed to do, keyed to commit
 history and the Decision Log below).
 
+Reversed the earlier "auth is out of scope" call and built real authentication
+for the HR Manager persona (see Decision Log). Added `HRUser` to the Prisma
+schema (migration `20260721051714_add_hr_user`) and a new backend `auth`
+module: `POST /auth/register` (creates an HR user — stays open/unauthenticated,
+see Decision Log), `POST /auth/login` (validates credentials, returns a 1h-
+expiry JWT), `GET /auth/me` (returns the caller's user from their token). A
+global `JwtAuthGuard` (wired via `APP_GUARD`) now protects every route in the
+app by default; `@Public()` (`src/auth/public.decorator.ts`) opts a route or
+whole controller out, currently used on `/auth/register`, `/auth/login`,
+`/health`, and the root `GET /`. All existing `employees`/`salaries`/
+`analytics` endpoints now require a valid `Authorization: Bearer <token>`
+header. Passwords are hashed with `bcryptjs` (never bcrypt's native binding —
+see Decision Log). 13 new Jest unit tests: `AuthService` (password hashing/
+verification, login success/failure for wrong-password and unknown-email,
+never returning `passwordHash`) mocking `PrismaService`, and `JwtAuthGuard`
+(the `@Public()` bypass in isolation, plus a small in-memory Nest app —
+mocked `AuthService`, no real DB — verifying the guard rejects missing/
+invalid/stale tokens and allows valid ones).
+
+Built the frontend half of auth: a `/login` page (`src/components/auth/
+login-form.tsx`) posting to `POST /auth/login`, a global `AuthProvider`
+(`src/lib/auth/auth-context.tsx`) that verifies the stored token against
+`GET /auth/me` on every app load, and an `AuthGuard` (`src/components/auth/
+auth-guard.tsx`) that now wraps every route under a new `(app)` route group
+(`employees`, `analytics`, `settings` all moved under `src/app/(app)/` —
+same URLs, Next route groups don't affect the path) so `AppShell` (sidebar/
+topbar) only ever renders for an authenticated session; `/login` sits
+outside the group with its own minimal centered layout. The token is stored
+in `localStorage` (see Decision Log for why, over the originally-preferred
+httpOnly cookie) and attached as `Authorization: Bearer <token>` by a new
+shared `apiFetch` wrapper (`src/lib/api/client.ts`) that every API module
+(`employees.ts`, `analytics.ts`, the new `auth.ts`) now calls instead of the
+bare `fetch` each used before. `apiFetch` also treats any 401 from a request
+that *did* carry a token as a signal the session died mid-use (expiry, or a
+deleted `HRUser`) — it clears the token and broadcasts a DOM event that
+`AuthProvider` listens for, dropping the app back to the unauthenticated
+state so `AuthGuard` redirects to `/login` without the user hitting a dead
+"please try again" error screen. A logout action (clear token, redirect to
+`/login`) was added to the bottom of `Sidebar`, next to the signed-in user's
+email. 5 new Vitest tests: `LoginForm` (redirects to `/employees` and stores
+the token on success; shows an inline error and stores nothing on a 401) and
+`AuthGuard` (redirects when there's no token, redirects when a stored token
+fails `/auth/me` validation, renders children once validation succeeds).
+
 ## Data Model
 
 - `Employee` (`backend/prisma/schema.prisma`): id (uuid), name, email (unique),
@@ -171,6 +220,10 @@ history and the Decision Log below).
   chosen over `Cascade` so an employee with salary history can't be hard-deleted and
   silently take that history with it; use the `status` enum (e.g. `TERMINATED`) for
   offboarding instead of deleting the row.
+- `HRUser` (`backend/prisma/schema.prisma`): id (uuid), email (unique), passwordHash,
+  name, createdAt. Not related to `Employee` by any FK — HR Manager accounts and the
+  employee roster they manage are separate concerns. Single-role by design (see
+  Decision Log): no `role` column, since this app only ever has one persona.
 
 ## Decision Log
 
@@ -517,8 +570,92 @@ history and the Decision Log below).
   scope calls had already been made and documented further down in this log.
   `docs/ai-usage.md` is explicitly labeled as a reconstruction from this log, not a
   verbatim prompt transcript, since no separate prompt history was retained.
-
-## Reference
+- 2026-07-21: Reversed the earlier "auth/roles/multi-tenant access control" exclusion
+  (see the original Scope Decisions entry, now removed) and added real JWT-based
+  authentication for the HR Manager persona. Single role (`HRUser`, no `role` column)
+  rather than a multi-role RBAC system — the app has exactly one persona, so a roles
+  table/permission matrix would be speculative complexity with nothing to distinguish.
+  Explicitly did not build password reset, email verification, or refresh tokens: all
+  three exist to solve problems (account recovery at scale, unverified signups, long-
+  lived sessions without re-prompting for a password) that don't apply to a single,
+  internally-trusted admin user in an assessment deliverable. Access tokens are
+  short-lived (1h) with no refresh flow — acceptable because re-login is cheap for a
+  single user, and it avoids the added complexity/attack-surface of refresh-token
+  storage and rotation for a feature with no other consumer.
+- 2026-07-21: Kept `POST /auth/register` open and unauthenticated (asked the user
+  directly, since a public account-creation endpoint on an admin tool is a real
+  judgment call, not an obvious default). Simpler than the alternatives — a seed-
+  script-only bootstrap, or gating registration behind an existing valid JWT — and
+  matches conventional REST auth patterns. Worth revisiting if this app ever moves
+  past the single-HR-Manager assumption: as-is, anyone who can reach the API can
+  mint an HR account, which is acceptable only because there's no multi-tenant
+  boundary to protect and the whole app already assumes a single trusted operator.
+- 2026-07-21: Chose `bcryptjs` over `bcrypt` for password hashing — `bcrypt` ships a
+  native (node-gyp) binding that needs a working native build toolchain, which is
+  extra friction on a Windows dev machine and on any deploy target that doesn't
+  prebuild native modules; `bcryptjs` is a pure-JS, API-compatible implementation
+  with no native dependency, at the cost of being somewhat slower per hash (acceptable
+  here — login/register are low-frequency, single-user-persona operations, not a
+  hot path).
+- 2026-07-21: Added a global `JwtAuthGuard` via `APP_GUARD` (protect-by-default)
+  rather than decorating every existing controller with an auth guard individually —
+  guarantees no future endpoint is accidentally left unauthenticated by omission.
+  Built a small `@Public()` decorator (`SetMetadata` + `Reflector.getAllAndOverride`
+  in the guard) to opt specific routes back out, applied to `/auth/register`,
+  `/auth/login`, `/health`, and the root `GET /` — the first three because they
+  must be reachable before a caller has a token (or, for `/health`, shouldn't require
+  one at all for infra health checks), the last because it's pre-existing Nest CLI
+  boilerplate with no real payload worth protecting.
+- 2026-07-21: `JwtStrategy`'s `validate()` re-fetches the user from the database by
+  the token's `sub` claim on every request, rather than trusting the JWT payload's
+  embedded email/name as-is. Slightly more DB load than a fully stateless JWT, but
+  means a deleted `HRUser` row is immediately locked out rather than staying valid
+  until its token naturally expires (bounded by the 1h expiry anyway, but this closes
+  the gap to zero) — mirrors the same "verify against current DB state" instinct as
+  the analytics module's "most recent record" and soft-delete decisions elsewhere in
+  this log.
+- 2026-07-21: Stores the JWT in `localStorage`, not an httpOnly cookie, despite
+  httpOnly being the generally-preferred option and the original instruction for this
+  work naming it as the preference. Two reasons, both stemming from the fact that
+  `JwtStrategy` already extracts the token via `ExtractJwt.fromAuthHeaderAsBearerToken()`
+  (see the backend `auth` module, built in an earlier session): (1) the requirement to
+  "attach the JWT as a Bearer token on all API calls" is itself in tension with
+  httpOnly — a cookie the browser attaches automatically needs no manual Authorization
+  header, so satisfying that requirement literally implies JS-readable storage; (2) a
+  real httpOnly-cookie flow would need backend changes with no other driver right now
+  — `cookie-parser`, the login endpoint setting `Set-Cookie` instead of returning
+  `{ accessToken }` JSON, `JwtStrategy` switching (or adding) a cookie extractor, and
+  CSRF protection (cookies auto-attach cross-request, unlike a bearer token, so
+  `SameSite` alone isn't automatically sufficient once any state-changing GET-adjacent
+  route exists) — meaningfully more surface for a single-user admin tool assessment
+  deliverable. `localStorage` access is centralized in `src/lib/auth/token.ts` and
+  never touched directly outside it, and every request goes through the new `apiFetch`
+  wrapper (`src/lib/api/client.ts`) rather than components reading the token
+  themselves — the honest trade-off is that the token is readable by any script that
+  runs in the page (XSS exposure an httpOnly cookie would have prevented), accepted
+  here because there's no untrusted third-party script surface in this app (no ads,
+  no embedded widgets, a small controlled dependency set) to make that a live risk.
+- 2026-07-21: Moved `employees/`, `analytics/`, and `settings/` under a new
+  `src/app/(app)/` Next.js route group with its own `layout.tsx` wrapping them in
+  `AuthGuard` + `AppShell`, rather than adding an auth check inside each page or
+  inside `AppShell` itself. Route groups don't appear in the URL, so `/employees` etc.
+  are unchanged; the win is that `AppShell` (sidebar/topbar) now structurally cannot
+  render without going through the guard first, and `/login` — which must render
+  without the sidebar/topbar chrome — simply lives outside the group with its own
+  layout. `AppShell` was removed from the root `layout.tsx` for the same reason: it
+  used to wrap every route unconditionally, which would have shown the authenticated
+  app chrome around the login form.
+- 2026-07-21: `AuthProvider` (`src/lib/auth/auth-context.tsx`) calls `GET /auth/me`
+  once on mount whenever a token is present, rather than treating "token exists in
+  localStorage" as sufficient proof of a valid session — mirrors the backend's own
+  `JwtStrategy.validate()` re-fetch-from-DB decision above: a token can be expired or
+  reference a since-deleted `HRUser` row, and either case should drop the user back to
+  `/login` instead of rendering the app shell on a session that's about to 401 on the
+  first real request. `apiFetch` reinforces this mid-session too: a 401 on any request
+  that *did* carry a token (not an anonymous 401, which just means "hit a protected
+  endpoint with no session yet") clears the token and fires a `window` event that
+  `AuthProvider` listens for, so a token that expires while the user is active on
+  `/employees` or `/analytics` also gets caught, not just the on-load check.
 
 - Full original assessment requirement (verbatim): [docs/00-original-requirement.md](docs/00-original-requirement.md)
 - Manual curl requests for every backend endpoint (Postman-importable): [docs/01-api-curl-requests.md](docs/01-api-curl-requests.md)

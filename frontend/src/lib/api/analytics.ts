@@ -1,3 +1,5 @@
+import { apiFetch } from "@/lib/api/client";
+
 export interface DepartmentStats {
   department: string;
   currency: string;
@@ -35,7 +37,7 @@ export interface AnalyticsSummary {
 export async function fetchAnalyticsSummary(
   signal?: AbortSignal
 ): Promise<AnalyticsSummary> {
-  const res = await fetch("/api/analytics/summary", { signal });
+  const res = await apiFetch("/api/analytics/summary", { signal });
 
   if (!res.ok) {
     throw new Error(`Failed to fetch analytics summary (${res.status})`);

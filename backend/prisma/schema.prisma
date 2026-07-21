@@ -46,6 +46,14 @@ model Employee {
   @@index([country])
 }
 
+model HRUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+}
+
 model SalaryRecord {
   id            String             @id @default(uuid())
   employeeId    String
