@@ -788,6 +788,28 @@ logic were touched, only styling/theming.
   review before the next, rather than one large restyling commit, so the
   design system could be validated early before being applied to every page.
 
+- 2026-07-22: Diagnosed and fixed a Vercel auto-deploy failure on push to `main`
+  (the redesign-pass PR merge): the GitHub-connected build errored with "No
+  Next.js version detected... check your Root Directory setting matches the
+  directory of your package.json file." Confirmed via `vercel project inspect`
+  that the project's Root Directory was `.` (repo root) instead of `frontend` —
+  Vercel was building from the monorepo root, which has no `package.json` at
+  all, let alone one declaring `next`. Unlike the still-unresolved Railway Root
+  Directory issue (see the 2026-07-21 deploy entry — CLI/API couldn't fix that
+  one), this one *was* fixable: `PATCH /v9/projects/{id}` with
+  `{"rootDirectory":"frontend"}` against Vercel's documented public API (same
+  endpoint pattern already used for the `ssoProtection` fix) worked and was
+  confirmed via a follow-up `vercel project inspect`. So the git-connected
+  auto-deploy-on-push pipeline is now expected to work correctly for the
+  frontend going forward — no more manual `vercel --prod` workaround needed
+  for `frontend/` (still needed for `backend/`, per the Railway note). Also
+  used `vercel --prod` once, run from inside `frontend/` rather than the repo
+  root, as an immediate workaround to get the already-merged redesign commit
+  live before the Root Directory fix landed — deploying from within the
+  `frontend/` directory uploads that directory's contents directly, sidestepping
+  the monorepo root-detection issue the same way `railway up` does for the
+  backend.
+
 - Full original assessment requirement (verbatim): [docs/00-original-requirement.md](docs/00-original-requirement.md)
 - Manual curl requests for every backend endpoint (Postman-importable): [docs/01-api-curl-requests.md](docs/01-api-curl-requests.md)
 - One-page requirements doc: [docs/requirements.md](docs/requirements.md)
