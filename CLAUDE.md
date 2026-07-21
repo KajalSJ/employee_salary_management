@@ -126,6 +126,18 @@ table scrolls within its own bordered container on narrow viewports instead of
 overflowing the whole page. Verified with Playwright at a 375px viewport
 against the real backend.
 
+Prepared both apps for deployment (Railway for backend + Postgres, Vercel for
+frontend — see Decision Log): `backend/railway.json` pins the Nixpacks build/
+start commands so `prisma migrate deploy` runs automatically before the app
+starts on every deploy, `backend/package.json` gained a `postinstall: prisma
+generate` (needed since `generated/prisma` is gitignored), and `main.ts` now
+binds `0.0.0.0` explicitly for container networking. The seed script
+deliberately stays out of both — it's documented as a manual one-time step.
+No `vercel.json` was added; the frontend needs zero platform-specific config
+beyond setting `BACKEND_URL` and the Vercel project's Root Directory. Full
+step-by-step runbook (with exactly which dashboard fields to set, since Claude
+has no account access to do this itself): [docs/deployment.md](docs/deployment.md).
+
 ## Data Model
 
 - `Employee` (`backend/prisma/schema.prisma`): id (uuid), name, email (unique),
@@ -436,6 +448,47 @@ against the real backend.
   with Playwright at a 375px viewport against the real backend: `document.body
   .scrollWidth` now equals the viewport width, and the table's own wrapper
   (not the page) is what scrolls.
+- 2026-07-21: Chose Railway (backend + Postgres) and Vercel (frontend) for
+  deployment, matching the two-independent-apps monorepo structure already in
+  place (see Tech Stack) rather than adopting workspace tooling or a combined
+  deploy target now. Set each platform's "Root Directory" to `backend`/
+  `frontend` respectively instead of adding a root-level build script,
+  keeping the no-shared-tooling decision intact.
+- 2026-07-21: `backend/railway.json` sets the deploy start command to
+  `npx prisma migrate deploy && npm run start:prod` rather than relying on a
+  separate Railway "release phase" — Railway doesn't have a distinct
+  pre-deploy/release-command concept the way Heroku does, and chaining
+  `migrate deploy` in front of the start command is the standard Prisma-on-
+  Railway pattern: it's safe to run on every deploy (idempotent — only
+  unapplied migrations run) and guarantees the schema is current before the
+  app starts accepting traffic. Explicitly did *not* wire `prisma db seed`/
+  `npm run seed` into this chain: the seed script wipes and re-inserts all
+  rows (see the seed idempotency note above), which is fine for a one-time
+  local `npm run seed` but would be destructive if it silently ran against a
+  live production database on every re-deploy. It's documented in
+  `docs/deployment.md` as a manual `railway run npm run seed` step instead.
+- 2026-07-21: Added `postinstall: prisma generate` to `backend/package.json`
+  because `generated/prisma` is gitignored (`backend/.gitignore`) — a fresh
+  `npm ci` on Railway (or any clean clone) has no Prisma Client until
+  something generates it, and unlike `prisma migrate dev`, `prisma generate`
+  needs no live DB connection, so it's safe to run at install/build time
+  before `DATABASE_URL` is necessarily reachable.
+- 2026-07-21: Added `'0.0.0.0'` as the explicit bind host in `main.ts`'s
+  `app.listen()` call. Node's default (no host arg) already listens on all
+  interfaces, so this was likely a no-op for Railway specifically, but it's
+  the documented-safe pattern for containerized Node deploys generally and
+  costs nothing to make explicit.
+- 2026-07-21: No `vercel.json` added for the frontend — nothing in
+  `next.config.ts` (a same-origin API rewrite, a Turbopack root path) needs
+  Vercel-specific handling beyond what its zero-config Next.js App Router
+  preset already infers. The only required project-level setting is Root
+  Directory (`frontend`), configured in the Vercel dashboard, not in a
+  committed file.
+- 2026-07-21: `frontend/.gitignore`'s inherited-from-`create-next-app`
+  `.env*` pattern silently also matched `.env.example`, which would have made
+  the new `frontend/.env.example` un-committable. Added `!.env.example` to
+  negate it — mirrors `backend/.gitignore`, which already only ignores the
+  literal `.env`, not the `.example` file.
 
 ## Reference
 
