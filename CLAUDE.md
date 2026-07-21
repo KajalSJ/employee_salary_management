@@ -25,9 +25,10 @@ between apps becomes necessary):
 
 - `/backend` — NestJS + TypeScript, Prisma ORM, PostgreSQL. Health check at `GET /health`.
   `employees` module is fully implemented (CRUD + pagination/filtering, see Current
-  Status); `analytics` module implemented (`GET /analytics/summary`); `salaries` is
-  still an empty NestJS module (registered in `app.module.ts`, no controller/service —
-  salary *writes* aren't exposed yet, only read via `employees/:id` and `analytics`).
+  Status); `analytics` module implemented (`GET /analytics/summary`); `salaries`
+  module now exposes one write endpoint, `POST /employees/:employeeId/salaries`
+  (create-only — see Decision Log), read access is still only via `employees/:id`
+  and `analytics`.
 - `/frontend` — Next.js (App Router) + TypeScript + Tailwind CSS v4 + shadcn/ui
   (`components.json`, `src/components/ui`).
 
@@ -62,6 +63,13 @@ currency, and a compa-ratio salary distribution histogram. See Decision Log for 
 it's currency-segmented rather than FX-converted. 7 Jest unit tests against a
 hand-computed fixture dataset (mocked `$queryRaw`, no real DB).
 
+Backend `salaries` module: `POST /employees/:employeeId/salaries` creates a new
+`SalaryRecord` for an employee — always inserts, never edits/replaces an existing
+row (see Decision Log for why `currency` is server-derived, not client-supplied).
+404s if the employee doesn't exist; 400s on validation failure (`amount` must be a
+positive number, `effectiveDate` an ISO date string, `reason` one of the
+`SalaryChangeReason` enum values). 3 Jest unit tests mocking `PrismaService`.
+
 Frontend layout shell built: root layout renders a persistent `AppShell`
 (`src/components/layout/`) — a fixed sidebar (Employees/Analytics/Settings nav,
 active-state highlighting via `usePathname`) and a topbar (mobile hamburger toggle,
@@ -74,12 +82,39 @@ built on TanStack Table + TanStack Query, calling `GET /employees` through a Nex
 rewrite proxy at `/api/*` (see Decision Log). Server-side pagination (20/page),
 dropdown filters for department/country/status (fixed lists, see Decision Log),
 name search debounced 300ms, loading skeleton, empty state, and row click navigates
-to `/employees/[id]`. `/employees/[id]` itself is still a placeholder — no detail
-view built yet. Vitest + React Testing Library set up for the frontend (4 tests
-covering render/empty-state/debounce/filter-refetch on `EmployeesTable`); verified
+to `/employees/[id]`.
+
+`/employees/[id]` (`src/components/employees/employee-detail.tsx` +
+`salary-history.tsx`) is now built: profile header (name, status badge, email,
+department, country, job title, hire date) and a salary history timeline sorted
+most-recent-`effectiveDate`-first, plus an inline "Add Salary Record" form (amount,
+effective date, reason — currency is never asked for, see Decision Log) that POSTs
+to the new `/employees/:id/salaries` endpoint and invalidates the detail query on
+success. Loading (skeleton) and not-found (404 from the API) states handled
+in-component via TanStack Query's `isPending`/`isError`, matching `EmployeesTable`'s
+pattern rather than Next's `notFound()`/`not-found.tsx` file convention (see
+Decision Log).
+
+`/analytics` (`src/components/analytics/`) is now a working dashboard: summary
+cards (total headcount, total payroll cost — one card per currency, never
+FX-converted), an "Average Salary by Department" chart faceted into one small
+Recharts bar chart per currency, an "Average Salary by Country" chart (single
+chart, every bar direct-labeled with its own currency amount plus a disclaimer
+caption — see Decision Log for why department and country needed different
+treatments), and a "Salary Distribution" chart of the compa-ratio buckets
+(currency-agnostic, so a single ordinary chart). Loading (skeleton) and empty
+(`headcount === 0`) states handled the same `useQuery`-driven way as the rest of
+the app. First real use of Recharts and of the dataviz skill's categorical
+palette (`--chart-1` in `globals.css`) in this project.
+
+Vitest + React Testing Library set up for the frontend (4 tests covering
+render/empty-state/debounce/filter-refetch on `EmployeesTable`; 4 more on
+`EmployeeDetail` covering profile render, salary-history ordering, not-found state,
+and the add-salary-record submit flow; 3 more on `AnalyticsDashboard` covering
+summary-card render from mock data, loading state, and empty state); verified
 end-to-end against the real seeded backend with Playwright driving system Chrome
-(see Decision Log). `/analytics` and `/settings` remain placeholder content.
-Requirements document and scope decisions still pending.
+(see Decision Log). `/settings` remains placeholder content. Requirements
+document and scope decisions still pending.
 
 ## Data Model
 
@@ -251,6 +286,121 @@ Requirements document and scope decisions still pending.
   `playwright` package expected (`chrome-headless-shell.exe` missing for the
   expected revision) and downloading a new one wasn't worth it for a one-off
   smoke check when system Chrome was already present.
+
+- 2026-07-21: Built the first `salaries` write endpoint,
+  `POST /employees/:employeeId/salaries` (`SalariesController`/`SalariesService`,
+  filling in the previously-empty `SalariesModule`). Nested under `/employees/:id`
+  rather than a flat `/salaries` with `employeeId` in the body, matching how the
+  data is already read (`employees/:id` embeds `salaryRecords`). `CreateSalaryRecordDto`
+  deliberately has no `currency` field — the service always sets
+  `currency: employee.currency` server-side (looked up via the `employeeId` path
+  param) rather than trusting a client-supplied value, because `SalaryRecord.currency`
+  is expected to always equal the parent `Employee.currency` (true for every seeded
+  record — see `seed.ts`'s `country.currency` usage for both) and analytics'
+  currency-segmented reporting (see the earlier analytics decision) silently relies
+  on that invariant holding. The global `ValidationPipe`'s `forbidNonWhitelisted`
+  rejects any request that tries to pass `currency` anyway, so this can't be worked
+  around from the client. Only inserts (`prisma.salaryRecord.create`) — there is no
+  update/delete route — enforcing the append-only history model at the API level,
+  not just by convention.
+- 2026-07-21: Built `/employees/[id]` (`EmployeeDetail`/`SalaryHistory` client
+  components) as `useQuery`/`isPending`/`isError` state handled inside the
+  component, the same pattern `EmployeesTable` already uses, rather than an async
+  Server Component + Next's `notFound()`/`not-found.tsx` file convention. Keeps
+  every data-fetching page in the app on one consistent, already-tested pattern
+  (manual `fetch` stubbing + `QueryClientProvider` in Vitest, no need to mock
+  `next/navigation`'s `notFound` or reach for `useSuspenseQuery` + an error
+  boundary). The 404 case is distinguished from other failures via a small
+  `ApiError` class (`src/lib/api/employees.ts`) that carries the HTTP status code,
+  since `fetchEmployee` needs to tell "employee doesn't exist" apart from "backend
+  unreachable" to render the right message.
+- 2026-07-21: The employee-name heading on `/employees/[id]` is an `<h2>`, not
+  `<h1>` — discovered mid-build that `Topbar` (`src/components/layout/topbar.tsx`)
+  already renders an `<h1>` page title (derived from the matched nav item, shared
+  by every route under `/employees`) for the whole app shell, so a second `<h1>` in
+  the page content would be a duplicate top-level heading. `SalaryHistory`'s
+  "Salary History" heading is correspondingly `<h3>`, nested under the employee
+  name. Worth remembering for any future page content: the app-wide document
+  heading is owned by `Topbar`, page bodies should start at `<h2>`.
+- 2026-07-21: Fixed a real bug surfaced while browser-testing the new page: base-ui's
+  own docs (`node_modules/@base-ui/react/docs/react/components/button.md`) say
+  `<a>`/`next/link` should *not* be composed via `Button`'s `render` prop at all —
+  "Links have their own semantics and should not be rendered as buttons... style the
+  `<a>` element directly with CSS." The `render={<Link .../>}` pattern this project's
+  CLAUDE.md previously documented (see the 2026-07-20 base-ui entry) triggers a
+  console warning ("expected a native `<button>` because `nativeButton` is true") for
+  exactly this reason. Fixed both the new usage in `EmployeeDetail`'s not-found state
+  and the pre-existing one in `src/app/not-found.tsx`: both now render `<Link
+  className={buttonVariants({...})}>` directly instead of wrapping in `<Button
+  render={...}>`. The `render`-prop pattern itself is still correct for composing
+  `Button` with non-link custom tags (e.g. `<div>` + `nativeButton={false}`) — the
+  fix is specifically "don't put a `Link` inside a `Button`."
+- 2026-07-21: `formatDate`/`formatAmount` (`employee-detail.tsx`, `salary-history.tsx`)
+  pin `Intl`/`toLocaleDateString` to `"en-US"` rather than the viewer's `undefined`
+  locale. Two reasons: an internal HR tool showing the same employee's data to
+  different HR staff should render dates/currency identically regardless of each
+  viewer's OS locale (avoids `1/7/2026` vs `7/1/2026` ambiguity); and it makes the
+  Vitest assertions deterministic — the test runner's default ICU locale on this
+  machine formats as `en-GB` (`"1 January 2024"`), which broke `en-US`-shaped
+  assertions until pinned.
+
+- 2026-07-21: Built `/analytics` on Recharts (`recharts` added to `frontend/
+  package.json`) rather than another charting library — no prior chart library
+  precedent in this project, Recharts is the ecosystem default for
+  React/Tailwind dashboards and its `ResponsiveContainer` + declarative
+  `<Bar>`/`<XAxis>`/`<Tooltip>` API matches how the rest of the frontend is
+  already composed (small, typed, composable pieces). Populated the previously-
+  unused `--chart-1` token in `globals.css` (`#2a78d6` light / `#3987e5` dark)
+  with a validated categorical blue rather than shadcn's grayscale placeholder
+  — validated via the project's dataviz skill's `validate_palette.js` against
+  this app's actual `--background` surfaces (light `#ffffff`, dark ~`#0a0a0a`);
+  every chart in the dashboard is a single-series chart, so only one categorical
+  slot was ever needed. Axis/gridline/tooltip chrome reuses the app's existing
+  `--border`/`--muted-foreground`/`--popover` tokens rather than importing the
+  dataviz skill's separate reference-palette chrome colors, to stay visually
+  consistent with the rest of the app.
+- 2026-07-21: `byDepartment`/`byCountry` avg-salary data is currency-segmented
+  (see the earlier analytics currency decision), and INR figures run ~10-15x
+  the other four currencies in the live seeded data (e.g. Engineering: EUR
+  ~89,989 / GBP ~65,646 / INR ~1,193,009 / SGD ~130,976 / USD ~104,581) — so a
+  single shared Y-axis across currencies was never viable (would either crush
+  the non-INR bars flat or need a log scale that misrepresents magnitude).
+  Department and country ended up needing *different* fixes for the same root
+  problem, because their data shapes differ: every department has employees in
+  all 5 currencies (real multi-bar-per-currency data), so
+  `DepartmentSalaryChart` facets into one small-multiples Recharts panel per
+  currency — each panel's Y-axis is internally consistent since it's all one
+  currency. Country, by contrast, has exactly one currency per country in this
+  seed (US→USD, India→INR, etc. — see `seed.ts`'s `country.currency`), so the
+  same faceting approach would produce five separate one-bar "charts," which
+  is a known bad pattern (a single value should be a stat tile, not forced bar
+  geometry). Asked the user how to handle the country case specifically; chose
+  a single bar chart with every bar direct-labeled with its own currency-
+  formatted value (Y-axis ticks hidden — a shared numeric axis across mixed
+  currencies would be actively misleading) plus a caption disclaiming that
+  amounts aren't FX-converted/comparable, over faceting into single-bar
+  panels — this was the option that most literally satisfies "a bar chart"
+  while still not asserting a false cross-currency comparison via axis
+  position. `SalaryDistributionChart` (compa-ratio buckets) didn't hit this
+  problem at all — compa-ratio is already currency-agnostic by construction,
+  so it's one ordinary single-axis chart.
+- 2026-07-21: Added `frontend/src/lib/format.ts` (`formatCurrency`,
+  `formatCompactCurrency`, `formatNumber`, `formatDate`, all pinned to
+  `"en-US"` — see the earlier locale-pinning decision) and refactored
+  `salary-history.tsx`/`employee-detail.tsx` to import from it instead of each
+  keeping its own copy of the same `Intl.NumberFormat`/`toLocaleDateString`
+  calls — the analytics dashboard needed the same currency formatting in four
+  more places (summary cards, all three charts' tooltips/labels), so this was
+  the first point where duplicating it a fifth and sixth time stopped making
+  sense.
+- 2026-07-21: Added `frontend/src/components/ui/card.tsx` (`Card`,
+  `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`) hand-rolled
+  rather than via the shadcn CLI — unlike the `Select`/sidebar cases documented
+  earlier, this wasn't about base-ui incompatibility (Card has no interactive
+  primitive at all, just styled `div`s), it was simpler to just match the
+  existing `rounded-lg border border-border p-6` convention already used
+  inline in `employee-detail.tsx`'s profile section than to invoke the CLI for
+  something this small.
 
 ## Reference
 

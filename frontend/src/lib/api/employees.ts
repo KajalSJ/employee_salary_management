@@ -33,10 +33,81 @@ export interface PaginatedResult<T> {
   };
 }
 
+export type SalaryChangeReason =
+  | "JOINING"
+  | "HIKE"
+  | "PROMOTION"
+  | "ADJUSTMENT"
+  | "CORRECTION";
+
+export interface SalaryRecord {
+  id: string;
+  employeeId: string;
+  amount: string;
+  currency: string;
+  effectiveDate: string;
+  reason: SalaryChangeReason;
+  createdAt: string;
+}
+
+export interface EmployeeDetail extends Employee {
+  salaryRecords: SalaryRecord[];
+}
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export async function fetchEmployee(
+  id: string,
+  signal?: AbortSignal
+): Promise<EmployeeDetail> {
+  const res = await fetch(`/api/employees/${id}`, { signal });
+
+  if (!res.ok) {
+    throw new ApiError(`Failed to fetch employee (${res.status})`, res.status);
+  }
+
+  return res.json();
+}
+
+export interface CreateSalaryRecordInput {
+  amount: number;
+  effectiveDate: string;
+  reason: Exclude<SalaryChangeReason, "JOINING">;
+}
+
+export async function createSalaryRecord(
+  employeeId: string,
+  input: CreateSalaryRecordInput
+): Promise<SalaryRecord> {
+  const res = await fetch(`/api/employees/${employeeId}/salaries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!res.ok) {
+    throw new ApiError(
+      `Failed to add salary record (${res.status})`,
+      res.status
+    );
+  }
+
+  return res.json();
+}
+
 export async function fetchEmployees(
   query: EmployeesQuery,
   signal?: AbortSignal
 ): Promise<PaginatedResult<Employee>> {
+  console.log("Fetching employees with query:", query);
   const params = new URLSearchParams();
   params.set("page", String(query.page));
   params.set("pageSize", String(query.pageSize));

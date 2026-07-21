@@ -8,10 +8,15 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SalariesModule = void 0;
 const common_1 = require("@nestjs/common");
+const salaries_controller_1 = require("./salaries.controller");
+const salaries_service_1 = require("./salaries.service");
 let SalariesModule = class SalariesModule {
 };
 exports.SalariesModule = SalariesModule;
 exports.SalariesModule = SalariesModule = __decorate([
-    (0, common_1.Module)({})
+    (0, common_1.Module)({
+        controllers: [salaries_controller_1.SalariesController],
+        providers: [salaries_service_1.SalariesService],
+    })
 ], SalariesModule);
 //# sourceMappingURL=salaries.module.js.map

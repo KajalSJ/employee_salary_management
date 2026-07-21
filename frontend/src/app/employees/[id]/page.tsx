@@ -1,3 +1,5 @@
+import { EmployeeDetail } from "@/components/employees/employee-detail";
+
 export default async function EmployeeDetailPage({
   params,
 }: {
@@ -5,9 +7,5 @@ export default async function EmployeeDetailPage({
 }) {
   const { id } = await params;
 
-  return (
-    <div className="text-sm text-muted-foreground">
-      Employee detail for {id} coming soon.
-    </div>
-  );
+  return <EmployeeDetail id={id} />;
 }
