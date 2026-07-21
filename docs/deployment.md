@@ -62,6 +62,7 @@ Open the backend service's **Variables** tab and add:
 | Variable       | Value                                                                 |
 | -------------- | ---------------------------------------------------------------------|
 | `DATABASE_URL` | Reference variable: `${{Postgres.DATABASE_URL}}` (pick your Postgres service's actual name from the dropdown Railway shows when you type `${{`) |
+| `JWT_SECRET`   | A long random string (e.g. `openssl rand -base64 48`) — required since the `auth` module was added; the app throws on boot without it. |
 
 Do **not** set `PORT` — Railway injects it automatically, and
 `backend/src/main.ts` already reads `process.env.PORT` and binds to
@@ -95,13 +96,19 @@ database using the [Railway CLI](https://docs.railway.com/guides/cli):
 railway login
 railway link            # select this project/service when prompted
 cd backend
-railway run npm run seed
+DATABASE_URL=$(railway variable list --service Postgres --json | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).DATABASE_PUBLIC_URL))") npm run seed
 ```
 
-`railway run` executes the command locally but injects the linked service's
-env vars (`DATABASE_URL`) into the process, so the script connects to the
-real Railway Postgres instance instead of your local one. Run this once,
-after the first successful deploy.
+`railway run npm run seed` (the simpler form) will **not** work here — it
+injects the backend service's own `DATABASE_URL`, which points at
+`postgres.railway.internal`, Railway's private network hostname. That's
+only reachable from inside Railway's network (i.e. from another Railway
+service), not from your machine, and fails with `Can't reach database
+server at postgres.railway.internal`. The Postgres plugin also exposes
+`DATABASE_PUBLIC_URL` (a TCP-proxied, externally-reachable connection
+string) specifically for this case — the command above overrides
+`DATABASE_URL` with that value for just this one run. Run this once, after
+the first successful deploy.
 
 ---
 
@@ -142,7 +149,19 @@ If you want Preview deployments (PRs) to hit a separate staging backend
 instead of production, set a different value scoped to the Preview
 environment only.
 
-### 2.4 Deploy and verify
+### 2.4 Turn off Deployment Protection
+
+New Vercel projects default `ssoProtection` to `all_except_custom_domains`
+— every deployment (including Production) redirects to a Vercel SSO login
+wall, since this project has no custom domain. That blocks anyone without
+access to your Vercel account, including assessment reviewers. In
+**Settings → Deployment Protection**, disable it (or set Production to
+"Only Preview Deployments" if you want previews still gated). If the
+dashboard toggle isn't visible, it can also be cleared via
+`PATCH https://api.vercel.com/v9/projects/{projectId}` with body
+`{"ssoProtection": null}` using a Vercel API token.
+
+### 2.5 Deploy and verify
 
 1. Deploy. Vercel builds with `next build` and serves via its managed
    Next.js runtime.

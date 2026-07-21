@@ -153,6 +153,13 @@ beyond setting `BACKEND_URL` and the Vercel project's Root Directory. Full
 step-by-step runbook (with exactly which dashboard fields to set, since Claude
 has no account access to do this itself): [docs/deployment.md](docs/deployment.md).
 
+Actually deployed both apps (this session had Railway/Vercel CLI access via the
+user's own authenticated login — see Decision Log for the several real bugs this
+surfaced that no amount of local dev had caught): backend live at
+`https://employeesalarymanagement-production.up.railway.app`, frontend live at
+`https://employee-salary-management-frontend-a56plt51y.vercel.app`, production
+Postgres seeded with the same 10,000-employee dataset as local dev.
+
 Wrote the assessment's requested artifacts doc set: [docs/requirements.md](docs/requirements.md)
 (one-page goal/scope/exclusions, filling in the previously-TBD Scope Decisions
 section above), [docs/architecture.md](docs/architecture.md) (stack, data model,
@@ -660,6 +667,83 @@ fails `/auth/me` validation, renders children once validation succeeds).
   endpoint with no session yet") clears the token and fires a `window` event that
   `AuthProvider` listens for, so a token that expires while the user is active on
   `/employees` or `/analytics` also gets caught, not just the on-load check.
+
+- 2026-07-21: Actually deployed both apps via CLI (Railway CLI + Vercel CLI,
+  authenticated with the user's own login — the user asked for this directly
+  rather than only handing off the runbook). This surfaced several real,
+  previously-latent bugs that local dev never exercised:
+  - `backend/dist/` was accidentally committed to git and never gitignored.
+    Nixpacks' build copies the local source tree into the image both before
+    *and after* running `npm run build`, so this stale committed `dist/`
+    silently clobbered the freshly-built one post-build, and the stale copy
+    didn't even contain `main.js` — `node dist/main` failed with `Cannot find
+    module`. Fixed by adding `dist` to `backend/.gitignore` and
+    `git rm --cached -r backend/dist`.
+  - Separately, and still live after the above fix: a clean `nest build` (which
+    uses `tsconfig.build.json`) puts `main.js` at `dist/src/main.js`, not
+    `dist/main.js`. TypeScript auto-infers `rootDir` as the longest common path
+    of every file in the compile graph; `backend/prisma.config.ts` (root-level,
+    matched by the default include glob) and `backend/generated/prisma/*.ts`
+    (pulled in transitively via `PrismaService`'s import) both sit outside
+    `src/`, so the inferred root becomes the backend root instead of `./src`,
+    nesting all of `src/`'s output under `dist/src/`. Excluding those paths from
+    `tsconfig.build.json` doesn't fix it either — `exclude` only keeps files out
+    of the initial root-file glob, not out of the program's transitively-
+    imported file set, and forcing an explicit `rootDir: "./src"` just turns
+    the same issue into a hard `TS6059` build error instead (a file outside
+    `rootDir` is part of the program). The real fix (moving the Prisma
+    generator's `output` to live under `src/generated/prisma` instead of
+    `backend/generated/prisma`) was judged too wide a blast radius mid-deploy
+    (11 files import from that path) — went with the smaller, equally-correct
+    fix instead: `backend/package.json`'s `start:prod` now runs
+    `node dist/src/main`, matching what a clean build actually produces. Revisit
+    the generator-output move if this project ever needs `rootDir` to mean what
+    it says for some other reason.
+  - `backend/package.json` had no `engines.node`. Railway's Nixpacks builder
+    defaulted to Node 18 for a from-local-files (`railway up`) deploy, which
+    is below Prisma 7's minimum (`^20.19 || ^22.12 || >=24.0`) — `npm ci` failed
+    outright. Added `"engines": { "node": ">=20.19" }`; Nixpacks then correctly
+    picked Node 24.
+  - `JWT_SECRET` was missing from `docs/deployment.md`'s Railway env var table
+    entirely — the `auth` module (added after that doc was originally written)
+    throws on boot without it, and the app crash-looped until it was set.
+    Doc updated; see the Data Model / auth decisions above for why the app
+    hard-fails instead of silently running unauthenticated.
+  - A brand-new Railway service's **Root Directory** setting proved unreliable
+    from this session's vantage point: set correctly in the dashboard (user
+    confirmed, twice, after a page refresh) but `railway redeploy`,
+    `railway redeploy --from-source`, and even a GitHub source
+    disconnect/reconnect all kept building from the monorepo root, not
+    `backend/`. Never root-caused (no CLI/API path was found to introspect the
+    setting Railway's own build pipeline was actually using — the CLI's stored
+    auth token isn't valid against Railway's public GraphQL API, confirmed with
+    a trivial `me` query, so that route was abandoned rather than fought
+    further). Worked around by deploying directly from local files
+    (`railway up` from `backend/`, whose upload independently respects
+    `.gitignore` and needs no Root Directory setting at all) instead of the
+    GitHub-connected auto-deploy-on-push pipeline. **This means a `git push` to
+    the connected branch will not currently redeploy the backend** — a future
+    session should either retry fixing Root Directory on the GitHub-source
+    pipeline, or treat `railway up` as the standing deploy method and document
+    that explicitly.
+  - Also found and fixed mid-flight: the project had an unrelated second,
+    never-configured service (`employee_management_backend`) alongside the
+    real one (`employee_salary_management`) — leftover from an earlier setup
+    attempt, left alone/unused rather than deleted, since it wasn't blocking
+    anything and deleting infra without being sure felt like the wrong default.
+  - New Vercel projects default `ssoProtection` to `all_except_custom_domains`,
+    gating every deployment (prod included) behind a Vercel SSO wall — invisible
+    in the dashboard for this account for reasons not root-caused, so cleared
+    via `PATCH /v9/projects/{id}` with `{"ssoProtection": null}` against
+    Vercel's documented public API instead (unlike the Railway case above, this
+    is an official, stable endpoint, not an internal one).
+  - `railway run npm run seed` (as documented) fails from outside Railway's
+    network: the backend's `DATABASE_URL` correctly points at
+    `postgres.railway.internal`, Railway's private-network hostname, which
+    isn't reachable from a local machine. The Postgres plugin also exposes
+    `DATABASE_PUBLIC_URL` (a TCP-proxied external connection string)
+    specifically for this case; `docs/deployment.md`'s seed instructions now
+    override `DATABASE_URL` with that value for the one-off seed run instead.
 
 - Full original assessment requirement (verbatim): [docs/00-original-requirement.md](docs/00-original-requirement.md)
 - Manual curl requests for every backend endpoint (Postman-importable): [docs/01-api-curl-requests.md](docs/01-api-curl-requests.md)
