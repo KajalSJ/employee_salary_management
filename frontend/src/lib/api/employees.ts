@@ -1,3 +1,5 @@
+import { apiFetch, ApiError } from "@/lib/api/client";
+
 export type EmployeeStatus = "ACTIVE" | "INACTIVE" | "TERMINATED";
 
 export interface Employee {
@@ -54,21 +56,13 @@ export interface EmployeeDetail extends Employee {
   salaryRecords: SalaryRecord[];
 }
 
-export class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
+export { ApiError };
 
 export async function fetchEmployee(
   id: string,
   signal?: AbortSignal
 ): Promise<EmployeeDetail> {
-  const res = await fetch(`/api/employees/${id}`, { signal });
+  const res = await apiFetch(`/api/employees/${id}`, { signal });
 
   if (!res.ok) {
     throw new ApiError(`Failed to fetch employee (${res.status})`, res.status);
@@ -87,7 +81,7 @@ export async function createSalaryRecord(
   employeeId: string,
   input: CreateSalaryRecordInput
 ): Promise<SalaryRecord> {
-  const res = await fetch(`/api/employees/${employeeId}/salaries`, {
+  const res = await apiFetch(`/api/employees/${employeeId}/salaries`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -116,7 +110,7 @@ export async function fetchEmployees(
   if (query.status) params.set("status", query.status);
   if (query.search) params.set("search", query.search);
 
-  const res = await fetch(`/api/employees?${params.toString()}`, { signal });
+  const res = await apiFetch(`/api/employees?${params.toString()}`, { signal });
 
   if (!res.ok) {
     throw new Error(`Failed to fetch employees (${res.status})`);
