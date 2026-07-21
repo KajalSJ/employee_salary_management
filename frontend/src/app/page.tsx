@@ -1,9 +1,5 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <div>
-      <h1>Welcome to the Home Page</h1>
-    </div>
-  );
+  redirect("/employees");
 }
