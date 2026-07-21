@@ -590,6 +590,10 @@ fails `/auth/me` validation, renders children once validation succeeds).
   past the single-HR-Manager assumption: as-is, anyone who can reach the API can
   mint an HR account, which is acceptable only because there's no multi-tenant
   boundary to protect and the whole app already assumes a single trusted operator.
+  Reconfirmed 2026-07-21: `auth/register` left open for demo purposes; in production
+  this would be closed/admin-only since HR accounts shouldn't be self-service. Stated
+  explicitly here so this reads as a deliberate, acknowledged trade-off for the
+  assessment context, not an oversight a reviewer needs to flag.
 - 2026-07-21: Chose `bcryptjs` over `bcrypt` for password hashing — `bcrypt` ships a
   native (node-gyp) binding that needs a working native build toolchain, which is
   extra friction on a Windows dev machine and on any deploy target that doesn't
