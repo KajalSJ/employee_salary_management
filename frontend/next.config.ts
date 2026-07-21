@@ -4,6 +4,7 @@ import path from "path";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   turbopack: {
     root: path.join(__dirname),
   },

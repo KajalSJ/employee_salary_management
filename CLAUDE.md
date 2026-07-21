@@ -211,6 +211,29 @@ the token on success; shows an inline error and stores nothing on a 401) and
 `AuthGuard` (redirects when there's no token, redirects when a stored token
 fails `/auth/me` validation, renders children once validation succeeds).
 
+Started a dedicated UI/UX redesign pass (separate from the feature work above —
+see Decision Log), moving from the default shadcn look to a corporate/enterprise
+dashboard aesthetic (SAP Fiori/Workday-inspired). First landed piece: the design
+tokens in `globals.css` (deep navy primary `#1a3d6d`, cool-gray neutrals, a light
+neutral canvas with white bordered panels, dedicated `success`/`warning`/
+`destructive`/`info` semantic tokens, a tighter `--radius`, light-mode-only —
+the `.dark` block was removed since nothing in the app ever toggled it) and the
+shared primitives that consume them: `Badge` now has solid-colored variants
+(`success`/`warning`/`destructive`/`info`/`secondary`/`outline`) instead of
+10%-opacity tints, `Card` got a denser default padding, and `Button`/`Input`/
+`Select` had their dead `dark:` utility classes stripped. Also fixed a
+pre-existing bug found while touching `globals.css`: `--font-sans` was
+self-referential (`--font-sans: var(--font-sans)`), a guaranteed-invalid value
+that silently broke the site's intended Geist Sans font in favor of the browser
+default — now points at `--font-geist-sans`. Added two new shared layout
+primitives for later sections in this pass to consume: `Breadcrumb`
+(`src/components/layout/breadcrumb.tsx`) and `PageHeader`
+(`src/components/layout/page-header.tsx`), implementing the "title + breadcrumb +
+primary action, one row" pattern the design direction calls for on every page —
+not yet wired into any page (that happens as each page gets its own redesign
+commit). No behavior changed in this pass: no API calls, routing, or component
+logic were touched, only styling/theming.
+
 ## Data Model
 
 - `Employee` (`backend/prisma/schema.prisma`): id (uuid), name, email (unique),
@@ -744,6 +767,26 @@ fails `/auth/me` validation, renders children once validation succeeds).
     `DATABASE_PUBLIC_URL` (a TCP-proxied external connection string)
     specifically for this case; `docs/deployment.md`'s seed instructions now
     override `DATABASE_URL` with that value for the one-off seed run instead.
+
+- 2026-07-21: Started a dedicated UI/UX redesign pass, explicitly scoped as
+  styling/layout only — no API calls, business logic, routing, or component
+  behavior changes, markup structure/Tailwind classes/shadcn theming only.
+  Chose a corporate/enterprise dashboard direction (SAP Fiori/Workday-inspired:
+  structured, information-dense, professional) over the shadcn default look,
+  since the primary user (an HR manager doing serious payroll work) is closer
+  to an enterprise software user than a consumer-app user. Concretely: a deep
+  navy (`#1a3d6d`) primary/brand color, cool neutral grays for backgrounds/
+  borders/text, dedicated semantic tokens for success/warning/destructive/info
+  reused consistently in badges and alerts, a light neutral canvas with white
+  bordered (not shadowed) panels, a tighter `--radius` and denser spacing than
+  the original consumer-SaaS-styled scaffold, and a top-nav + left-sidebar
+  shell (the classic enterprise layout) rather than sidebar-only. Light mode
+  only for now — dark mode was never wired to a toggle in this app, so its CSS
+  was removed rather than kept half-maintained alongside the new palette.
+  Built as a sequence of reviewable commits (tokens/primitives → shell →
+  login → employee list → employee detail → analytics), each stopped for
+  review before the next, rather than one large restyling commit, so the
+  design system could be validated early before being applied to every page.
 
 - Full original assessment requirement (verbatim): [docs/00-original-requirement.md](docs/00-original-requirement.md)
 - Manual curl requests for every backend endpoint (Postman-importable): [docs/01-api-curl-requests.md](docs/01-api-curl-requests.md)
