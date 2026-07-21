@@ -34,13 +34,23 @@ between apps becomes necessary):
 
 ## Scope Decisions
 
-_Not yet decided — pending input in next session._
+Written up as a one-page doc: [docs/requirements.md](docs/requirements.md). Summary:
 
 ### In Scope
-- TBD
+- Employee CRUD with pagination/filtering/search
+- Append-only salary history per employee, with a create-new-record endpoint
+- Org-wide analytics (headcount, avg/median salary, payroll cost, distribution),
+  segmented by currency
+- Soft-delete (offboarding) via `status: TERMINATED`
 
 ### Explicitly Out of Scope
-- TBD
+- Editing/deleting existing salary records (create-only — see Decision Log)
+- Hard-deleting employees (FK `onDelete: Restrict` makes this structurally
+  impossible; use `status` instead)
+- Currency conversion/FX rates in analytics (see Decision Log)
+- Auth/roles/multi-tenant access control (single HR Manager persona)
+- Editable department/country lists (fixed set mirrored from seed data)
+- Reporting exports (CSV/PDF) and audit-log UI
 
 ## Current Status
 
@@ -137,6 +147,13 @@ No `vercel.json` was added; the frontend needs zero platform-specific config
 beyond setting `BACKEND_URL` and the Vercel project's Root Directory. Full
 step-by-step runbook (with exactly which dashboard fields to set, since Claude
 has no account access to do this itself): [docs/deployment.md](docs/deployment.md).
+
+Wrote the assessment's requested artifacts doc set: [docs/requirements.md](docs/requirements.md)
+(one-page goal/scope/exclusions, filling in the previously-TBD Scope Decisions
+section above), [docs/architecture.md](docs/architecture.md) (stack, data model,
+API structure, key trade-offs), and [docs/ai-usage.md](docs/ai-usage.md) (phase-by-
+phase reconstruction of what Claude Code was directed to do, keyed to commit
+history and the Decision Log below).
 
 ## Data Model
 
@@ -490,7 +507,21 @@ has no account access to do this itself): [docs/deployment.md](docs/deployment.m
   negate it — mirrors `backend/.gitignore`, which already only ignores the
   literal `.env`, not the `.example` file.
 
+- 2026-07-21: Produced the three artifacts docs requested by the assessment brief
+  (`docs/requirements.md`, `docs/architecture.md`, `docs/ai-usage.md`), sourced
+  entirely from this Decision Log and the assessment brief rather than written
+  fresh — the scope decisions and trade-offs had already been made and recorded
+  here over the course of the project; this pass was write-up, not new decision-
+  making. Used this as the occasion to fill in the Scope Decisions section above,
+  which had been left as a TBD placeholder even after most of the actual in/out-of-
+  scope calls had already been made and documented further down in this log.
+  `docs/ai-usage.md` is explicitly labeled as a reconstruction from this log, not a
+  verbatim prompt transcript, since no separate prompt history was retained.
+
 ## Reference
 
 - Full original assessment requirement (verbatim): [docs/00-original-requirement.md](docs/00-original-requirement.md)
 - Manual curl requests for every backend endpoint (Postman-importable): [docs/01-api-curl-requests.md](docs/01-api-curl-requests.md)
+- One-page requirements doc: [docs/requirements.md](docs/requirements.md)
+- Architecture overview: [docs/architecture.md](docs/architecture.md)
+- AI usage write-up: [docs/ai-usage.md](docs/ai-usage.md)
