@@ -1,13 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { Building2, LogOut, X } from "lucide-react"
+import { usePathname } from "next/navigation"
+import { Building2, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { navItems } from "@/components/layout/nav-items"
-import { useAuth } from "@/lib/auth/auth-context"
 
 export function Sidebar({
   open,
@@ -17,13 +16,6 @@ export function Sidebar({
   onClose: () => void
 }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const { user, logout } = useAuth()
-
-  function handleLogout() {
-    logout()
-    router.replace("/login")
-  }
 
   return (
     <>
@@ -80,26 +72,6 @@ export function Sidebar({
             )
           })}
         </nav>
-
-        <div className="flex items-center justify-between gap-2 border-t border-sidebar-border p-2">
-          {user && (
-            <span
-              className="truncate px-1 text-xs text-sidebar-foreground/70"
-              title={user.email}
-            >
-              {user.email}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="shrink-0"
-            onClick={handleLogout}
-          >
-            <LogOut className="size-3.5" aria-hidden="true" />
-            Log out
-          </Button>
-        </div>
       </aside>
     </>
   )
