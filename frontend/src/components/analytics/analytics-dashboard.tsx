@@ -7,6 +7,7 @@ import { CountrySalaryChart } from "@/components/analytics/country-salary-chart"
 import { DepartmentSalaryChart } from "@/components/analytics/department-salary-chart";
 import { SalaryDistributionChart } from "@/components/analytics/salary-distribution-chart";
 import { SummaryCards } from "@/components/analytics/summary-cards";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAnalyticsSummary } from "@/lib/api/analytics";
 
@@ -33,9 +34,14 @@ export function AnalyticsDashboard() {
 
   if (query.isError) {
     return (
-      <p className="text-sm text-destructive">
-        Failed to load analytics. Please try again.
-      </p>
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+        <p className="text-sm text-destructive">
+          Failed to load analytics. Please try again.
+        </p>
+        <Button variant="outline" size="sm" onClick={() => query.refetch()}>
+          Retry
+        </Button>
+      </div>
     );
   }
 

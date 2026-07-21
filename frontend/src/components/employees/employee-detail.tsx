@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { UserX } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SalaryHistory } from "@/components/employees/salary-history";
 import { ApiError, fetchEmployee, type EmployeeStatus } from "@/lib/api/employees";
@@ -53,12 +53,22 @@ export function EmployeeDetail({ id }: { id: string }) {
             ? "This employee doesn't exist or may have been removed."
             : "Something went wrong. Please try again."}
         </p>
-        <Link
-          href="/employees"
-          className={buttonVariants({ variant: "outline", className: "mt-2" })}
-        >
-          Back to Employees
-        </Link>
+        <div className="mt-2 flex items-center gap-2">
+          {!isNotFound && (
+            <Button
+              variant="outline"
+              onClick={() => query.refetch()}
+            >
+              Retry
+            </Button>
+          )}
+          <Link
+            href="/employees"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Back to Employees
+          </Link>
+        </div>
       </div>
     );
   }

@@ -116,6 +116,16 @@ end-to-end against the real seeded backend with Playwright driving system Chrome
 (see Decision Log). `/settings` remains placeholder content. Requirements
 document and scope decisions still pending.
 
+Completed a frontend polish pass across `/employees`, `/employees/[id]`,
+`/analytics`, and `/settings`: per-route `error.tsx` boundaries (see Decision
+Log) for unexpected render crashes, retry actions added to every inline
+TanStack Query error state (`EmployeesTable`, `AnalyticsDashboard`,
+`EmployeeDetail`'s non-404 case) so a failed fetch isn't a dead end, and a
+`min-w-0` fix on `AppShell`'s flex column (see Decision Log) so the employees
+table scrolls within its own bordered container on narrow viewports instead of
+overflowing the whole page. Verified with Playwright at a 375px viewport
+against the real backend.
+
 ## Data Model
 
 - `Employee` (`backend/prisma/schema.prisma`): id (uuid), name, email (unique),
@@ -401,6 +411,31 @@ document and scope decisions still pending.
   existing `rounded-lg border border-border p-6` convention already used
   inline in `employee-detail.tsx`'s profile section than to invoke the CLI for
   something this small.
+- 2026-07-21: Added per-route Next.js `error.tsx` boundaries
+  (`app/employees/error.tsx`, `app/employees/[id]/error.tsx`,
+  `app/analytics/error.tsx`, `app/settings/error.tsx`), each a thin wrapper
+  around a new shared `src/components/page-error.tsx` (icon, message, a "Try
+  again" button wired to Next's `reset()`). Deliberately per-route rather than
+  one root `app/error.tsx` — a root boundary would unmount the whole `AppShell`
+  (sidebar/topbar) on any single page's crash, forcing every recovery through a
+  full-page reset; per-route boundaries keep navigation alive so the user can
+  route away instead. These only catch unexpected render exceptions, not the
+  TanStack Query fetch failures every data-fetching component already renders
+  inline via `isError` — those got their own fix in the same pass: `EmployeesTable`,
+  `AnalyticsDashboard`, and `EmployeeDetail`'s non-404 error branch previously
+  showed a "Please try again" message with no actual way to retry short of a
+  manual page reload; each now has a "Retry" button calling `query.refetch()`.
+- 2026-07-21: Fixed a latent responsive bug found while auditing the app for a
+  mobile pass: `AppShell`'s right-hand column (`flex-1 flex-col`, wrapping
+  `Topbar` + `<main>`) had no `min-w-0`. Flexbox items default to
+  `min-width: auto`, i.e. they won't shrink below their content's intrinsic
+  width — so a wide child (the employees table, which already wraps itself in
+  `overflow-x-auto`, see `ui/table.tsx`) would have forced the *whole page*
+  wider than the viewport instead of scrolling inside its own bordered
+  container. Added `min-w-0` to both the flex column and `<main>`. Verified
+  with Playwright at a 375px viewport against the real backend: `document.body
+  .scrollWidth` now equals the viewport width, and the table's own wrapper
+  (not the page) is what scrolls.
 
 ## Reference
 

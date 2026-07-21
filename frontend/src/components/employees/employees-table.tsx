@@ -132,6 +132,26 @@ export function EmployeesTable() {
                   ))}
                 </TableRow>
               ))
+            ) : query.isError ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={employeeColumns.length}
+                  className="h-40 text-center"
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-destructive">
+                      Failed to load employees. Please try again.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => query.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
             ) : isEmpty ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell
@@ -171,7 +191,7 @@ export function EmployeesTable() {
         </Table>
       </div>
 
-      {meta && !isEmpty && (
+      {meta && !isEmpty && !query.isError && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
             {meta.total} employee{meta.total === 1 ? "" : "s"}
@@ -200,11 +220,6 @@ export function EmployeesTable() {
         </div>
       )}
 
-      {query.isError && (
-        <p className="text-sm text-destructive">
-          Failed to load employees. Please try again.
-        </p>
-      )}
     </div>
   );
 }
